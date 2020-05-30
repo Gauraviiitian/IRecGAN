@@ -3,6 +3,7 @@ import numpy as np
 import os
 import copy
 import sys
+
 tf.app.flags.DEFINE_integer("units", 512, "Size of each model layer.")
 tf.app.flags.DEFINE_integer("symbols", 40000, "Size of item list.")
 tf.app.flags.DEFINE_integer("embed_units", 50, "Embedding units.")
@@ -10,6 +11,7 @@ tf.app.flags.DEFINE_integer("layers", 2, "Number of layers in the model.")
 tf.app.flags.DEFINE_integer("action_num", 10, "num of recommendations")
 tf.app.flags.DEFINE_integer("batch_size", 32, "Batch size to use during training.")
 
+tf.app.flags.DEFINE_string('f', '', 'kernel') # dummy flag for jupyter notebook uses
 tf.app.flags.DEFINE_string("data_dir", "./data", "Data directory")
 tf.app.flags.DEFINE_string("data_name", "train.csv", "Data name")
 tf.app.flags.DEFINE_boolean("use_simulated_data", False, "Set to True to use simulated data")
@@ -40,13 +42,14 @@ def load_data(path, fname):
     with open("%s/%s"%(path,fname), "r") as fin:
         for line in fin:
             tmp = line.strip().split(";")
-            if int(tmp[0]) in session:
+            # tmp[0] is key unique for each session, a session can have many rows(interactions)
+            if int(tmp[0]) in session: # the session is already initialized
                 session[int(tmp[0])].append(
                     {"click": tmp[2],
                     "rec_list": tmp[3].strip().split(","),
                     "purchase": int(tmp[4].strip()),
                     "dis_reward":1.})
-            else:
+            else: # initialize the session with the first data point
                 session[int(tmp[0])] = [
                     {"click": tmp[2],
                     "rec_list": tmp[3].strip().split(","),
@@ -57,15 +60,16 @@ def load_data(path, fname):
 
         skey = sorted(session.keys())
         for key in skey:
-            if len(session[key]) > 1 and len(session[key]) <= 40:
+            if len(session[key]) > 1 and len(session[key]) <= 40: # take only that session which has length in range [2, 40]
                 output_session.append(session[key])
         print("Number of sessions after filtering:", len(output_session))
-    return output_session
+    return output_session # output_session is list of sessions, each interaction in session is a dictionary
 
 def build_vocab(data):
+    # clicked items can be duplicate but vocab only stores them once
     print("Creating vocabulary...")
-    if FLAGS.use_simulated_data:
-        article_list = _START_VOCAB + map(str, range(50))
+    if FLAGS['use_simulated_data'].value:
+        article_list = _START_VOCAB + list(map(str, range(50)))
     else:
         vocab = {}
         for each_session in data:
@@ -76,23 +80,26 @@ def build_vocab(data):
                         vocab[token] += 1
                     else:
                         vocab[token] = 1
-        article_list = _START_VOCAB + sorted(vocab, key=vocab.get, reverse=True)
+        article_list = _START_VOCAB + sorted(vocab, key=vocab.get, reverse=True) # article_list is a list of clicked items + _START_VOCAB
 
-    with open("article_list.txt", "w") as fout:
-        for a in article_list:
-            print >> fout, a
-    if len(article_list) > FLAGS.symbols:
-        article_list = article_list[:FLAGS.symbols]
+    fout = open("article_list.txt", "a")
+    for a in article_list:
+        fout.write(a)
+    fout.close()
+    
+    if len(article_list) > FLAGS['symbols'].value: # if the length of sessions exceeds maximum limit then slice it to max size
+        article_list = article_list[:FLAGS['symbols'].value]
     else:
-        FLAGS.symbols = len(article_list)
-    embed = []
-    for i, _ in enumerate(article_list):
-        if i < len(_START_VOCAB):
-            embed.append(np.zeros(FLAGS.embed_units, dtype=np.float32))
-        else:
-            embed.append(np.random.normal(size=(FLAGS.embed_units)))
-    embed = np.array(embed, dtype=np.float32)
-    return article_list, embed
+        FLAGS['symbols'].value = len(article_list)
+    
+    embed = [] # for each clicked item we're generating random embedding vector
+    for i, _ in enumerate(article_list): # i is index, _ is item, which we don't care about
+        if i < len(_START_VOCAB): # for each _START_VOCAB item, embed [0]*50
+            embed.append(np.zeros(FLAGS['embed_units'].value, dtype=np.float32))
+        else: # for clicked items embed random values acc to normal distribution
+            embed.append(np.random.normal(size=(FLAGS['embed_units'].value)))
+    embed = np.array(embed, dtype=np.float32) 
+    return article_list, embed 
 
 
 def gen_batched_data(data):
@@ -109,7 +116,7 @@ def gen_batched_data(data):
     def padding_cum_reward(vec, l):
         for i in range(len(vec)-1):
             inv_i = len(vec) - i - 2
-            vec[inv_i] += FLAGS.gamma * vec[inv_i+1]
+            vec[inv_i] += FLAGS['gamma'].value * vec[inv_i+1]
         return vec + [-1. for _ in range(l - len(vec))]
 
     def get_vec(session_al):
@@ -143,7 +150,7 @@ def gen_batched_data(data):
         cum_env_dis_reward.append(padding_cum_reward((np.array(env_reward_list)*np.array(dis_reward_list)).tolist(), max_len))
         dis_reward.append(padding_m1(dis_reward_list, max_len))
 
-        rl, rm = get_vec([s["rec_list"] for s in item][1:] + [[EOS_ID]+np.random.permutation(range(4,FLAGS.symbols))[:np.random.randint(15,random_appendix)].tolist()])
+        rl, rm = get_vec([s["rec_list"] for s in item][1:] + [[EOS_ID]+np.random.permutation(range(4,FLAGS['symbols'].value))[:np.random.randint(15,random_appendix)].tolist()])
         rec_lists.append(rl)
         rec_mask.append(rm)
         aims.append(get_aim(sessions[-1][1:] + [0], rl))
@@ -170,21 +177,21 @@ def compute_acc(ba, pi, rl, mask, purchase, ftest_name, output):
         for i, (aim, predict_index, rec_list, rec_mask, purchase) in enumerate(zip(batch_aim, batch_predict_idx, batch_rec_list, batch_rec_mask, batch_purchase)):
             if rec_list[0] == EOS_ID:
                 break
-            if np.sum(rec_mask) > FLAGS.metric:
-                if output: print >> ftest, ">%d"%FLAGS.metric,
+            if np.sum(rec_mask) > FLAGS['metric'].value:
+                if output: print(ftest, ">%d"%FLAGS['metric'].value)
                 total_num += 1
 
                 new_predict_index = []
                 for tmpp in predict_index:
                     if rec_list[tmpp] != EOS_ID:
                         new_predict_index.append(tmpp)
-                if len(new_predict_index) > FLAGS.metric:
-                    predict_index = new_predict_index[:FLAGS.metric]
+                if len(new_predict_index) > FLAGS['metric'].value:
+                    predict_index = new_predict_index[:FLAGS['metric'].value]
                 else:
                     predict_index = new_predict_index[:]
                 for tmpp in predict_index:
                     if rec_list[tmpp] != 1 and rec_mask[tmpp] == 1 and (aim == tmpp):
-                        if output: print >> ftest, "p@%d"%FLAGS.metric,
+                        if output: print(ftest, "p@%d"%FLAGS['metric'].value)
                         correct += 1
                         break
 
@@ -197,13 +204,13 @@ def compute_acc(ba, pi, rl, mask, purchase, ftest_name, output):
 
                 total_num_1 += 1
                 if rec_list[predict_index[0]] != 1 and rec_mask[predict_index[0]] == 1 and (aim == predict_index[0]):
-                    if output: print >> ftest, 1,
+                    if output: print(ftest, 1)
                     correct_1 += 1
                 else:
-                    if output: print >> ftest, 0,
-                if output: print >> ftest, batch_purchase[i+1] * 3 + 1,
+                    if output: print(ftest, 0)
+                if output: print(ftest, batch_purchase[i+1] * 3 + 1)
                 try:
-                    if output: print >> ftest, [rec_list[tmpp] for tmpp in predict_index], rec_list[aim], list(rec_list)
+                    if output: print(ftest, [rec_list[tmpp] for tmpp in predict_index], rec_list[aim], list(rec_list))
                 except:
                     print(predict_index, aim, rec_list)
                     print(ba, pi, rl, mask, purchase)
@@ -213,5 +220,5 @@ def compute_acc(ba, pi, rl, mask, purchase, ftest_name, output):
                     if rec_list[predict_index[0]] != 1 and rec_mask[predict_index[0]] == 1 and (aim == predict_index[0]):
                         pur_1 += 1
 
-        if output: print >> ftest, "-------------------------"
+        if output: print(ftest, "-------------------------")
     return correct / (total_num + 1e-18), correct_1 / (total_num_1 + 1e-18) #, pur, all_purchase, pur_1, all_purchase_1

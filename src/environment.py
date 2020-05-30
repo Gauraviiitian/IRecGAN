@@ -69,13 +69,13 @@ class EnvModel(object):
             # [batch_size, length, rec_length]
             self.norm_prob = mul_prob / (tf.expand_dims(tf.reduce_sum(mul_prob, 2), 2) + 1e-20)
             # [batch_size, length, metric_num]
-            _, self.argmax_index = tf.nn.top_k(self.norm_prob, k=FLAGS.metric+1)
+            _, self.argmax_index = tf.nn.top_k(self.norm_prob, k=FLAGS['metric'].value+1)
             local_predict_loss = tf.reduce_sum(-self.aims * tf.log(self.norm_prob + 1e-20), 2) * encoder_mask
             self.predict_loss = tf.reduce_sum(local_predict_loss) / tf.reduce_sum(encoder_mask)
 
             # [batch_size, length, embed_units]
             aim_embed = tf.reduce_sum(tf.expand_dims(self.aims, 3) * self.candidate, 2)
-            if FLAGS.use_simulated_data:
+            if FLAGS['use_simulated_data'].value:
                 self.purchase_prob, local_purchase_loss, self.purchase_loss = tf.zeros([batch_size,encoder_length,2], dtype=tf.float32), tf.zeros([batch_size,encoder_length], dtype=tf.float32), tf.constant(0., dtype=tf.float32)
             else:
                 # [batch_size, length, 2]
@@ -105,7 +105,7 @@ class EnvModel(object):
 
             self.inf_norm_prob = inf_mul_prob / (tf.expand_dims(tf.reduce_sum(inf_mul_prob, 2), 2) + 1e-20)
             # [batch_size, 1, metric_num]
-            _, self.inf_argmax_index = tf.nn.top_k(self.inf_norm_prob, k=FLAGS.metric)
+            _, self.inf_argmax_index = tf.nn.top_k(self.inf_norm_prob, k=FLAGS['metric'].value)
             _, self.inf_all_argmax_index = tf.nn.top_k(self.inf_norm_prob, k=tf.shape(self.inf_norm_prob)[-1])
 
             def gumbel_max(inp, alpha, beta):
@@ -115,12 +115,12 @@ class EnvModel(object):
                 inp_g = tf.nn.softmax((tf.nn.log_softmax(inp/1.0) + g * alpha) * beta)
                 return inp_g
             # [batch_size, action_num]
-            _, self.inf_random_index = tf.nn.top_k(gumbel_max(tf.log(self.inf_norm_prob+1e-20), 1, 1), k=FLAGS.metric)
+            _, self.inf_random_index = tf.nn.top_k(gumbel_max(tf.log(self.inf_norm_prob+1e-20), 1, 1), k=FLAGS['metric'].value)
             _, self.inf_all_random_index = tf.nn.top_k(gumbel_max(tf.log(self.inf_norm_prob+1e-20), 1, 1), k=tf.shape(self.inf_norm_prob)[-1])
 
             inf_aim_embed = tf.reduce_sum(tf.cast(tf.reshape(tf.one_hot(self.inf_argmax_index[:,:,0], rec_length), [batch_size,1,rec_length,1]), tf.float32) * self.inf_candidate, 2)
 
-            if FLAGS.use_simulated_data:
+            if FLAGS['use_simulated_data'].value:
                 self.inf_purchase_prob = tf.zeros([batch_size,1,2], dtype=tf.float32)
             else:
                 # [batch_size, 1, 2]
@@ -188,7 +188,7 @@ class EnvModel(object):
         return session.run(output_feed, input_feed)
 
 
-    def train(self, sess, dataset, is_train=True, ftest_name=FLAGS.env_output_file):
+    def train(self, sess, dataset, is_train=True, ftest_name=FLAGS['env_output_file'].value):
         st, ed, loss, acc, acc_1, pr_loss, pu_loss = 0, 0, [], [], [], [], []
         tp, tn, fp, fn = [], [], [], []
         print("Get %s data:len(dataset) is %d " % ("training" if is_train else "testing", len(dataset)))
@@ -196,8 +196,8 @@ class EnvModel(object):
             fout = open(ftest_name, "w")
             fout.close()
         while ed < len(dataset):
-            st, ed = ed, ed + FLAGS.batch_size if ed + \
-                FLAGS.batch_size < len(dataset) else len(dataset)
+            st, ed = ed, ed + FLAGS['batch_size'].value if ed + \
+                FLAGS['batch_size'].value < len(dataset) else len(dataset)
             batch_data = gen_batched_data(dataset[st:ed])
             outputs = self.step_decoder(sess, batch_data, forward_only=False if is_train else True)
             loss.append(outputs[0])
@@ -210,7 +210,7 @@ class EnvModel(object):
             acc.append(tmp_acc)
             acc_1.append(tmp_acc_1)
 
-            if not FLAGS.use_simulated_data:
+            if not FLAGS['use_simulated_data'].value:
                 all_num, true_pos, true_neg, false_pos, false_neg = 1e-6, 0., 0., 0., 0.
                 for b_pu, b_pu_l in zip(batch_data["purchase"], purchase_prob):
                     for pu, pu_l in zip(b_pu, b_pu_l): 
@@ -229,11 +229,11 @@ class EnvModel(object):
                 tn.append(true_neg / all_num)
                 fp.append(false_pos / all_num)
                 fn.append(false_neg / all_num)
-        if not FLAGS.use_simulated_data:
+        if not FLAGS['use_simulated_data'].value:
             print("Confusion matrix for purchase prediction:")
             print("true positive:%.4f"%np.mean(tp), "true negative:%.4f"%np.mean(tn))
             print("false positive:%.4f"%np.mean(fp), "false negative:%.4f"%np.mean(fn))
-        print("predict:p@1:%.4f%%"%(np.mean(acc_1) * 100), "p@%d:%.4f%%"%(FLAGS.metric, np.mean(acc)*100))
+        print("predict:p@1:%.4f%%"%(np.mean(acc_1) * 100), "p@%d:%.4f%%"%(FLAGS['metric'].value, np.mean(acc)*100))
 
         if is_train:
             sess.run(self.epoch_add_op)
@@ -243,8 +243,8 @@ class EnvModel(object):
         st, ed, loss = 0, 0, []
         print("Get %s data:len(dataset) is %d " % ("training", len(dataset)))
         while ed < len(dataset):
-            st, ed = ed, ed + FLAGS.batch_size if ed + \
-                FLAGS.batch_size < len(dataset) else len(dataset)
+            st, ed = ed, ed + FLAGS['batch_size'].value if ed + \
+                FLAGS['batch_size'].value < len(dataset) else len(dataset)
             batch_data = gen_batched_data(dataset[st:ed])
             outputs = self.pg_step_decoder(sess, batch_data, forward_only=False)
             loss.append(outputs[0])

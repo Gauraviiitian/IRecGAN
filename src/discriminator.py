@@ -70,7 +70,7 @@ class DisModel(object):
 
         self.max_embed = tf.reduce_sum(tf.expand_dims(tf.nn.softmax(self.pre_mul_can / 0.1), 3) * self.candidate, 2)
         self.aim_embed = tf.reduce_sum(tf.expand_dims(tf.one_hot(self.aims_idx, rec_length), 3) * self.candidate, 2)
-        if FLAGS.use_simulated_data:
+        if FLAGS['use_simulated_data'].value:
             purchase_weight = tf.constant(1.0, dtype=tf.float32)
         else:
             W_p = tf.get_variable("Wp", shape=(), dtype=tf.float32)

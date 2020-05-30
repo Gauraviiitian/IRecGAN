@@ -28,28 +28,28 @@ def gen_mdp(state_num, action_num, output_score_file, output_prob_file):
     with open(output_score_file, "w") as fout:
         state_action_score = [np.random.rand(action_num) for _ in range(state_num)]
         for i in range(state_num):
-            print >> fout, " ".join(map(str, state_action_score[i]))
+            print(fout, " ".join(list(map(str, state_action_score[i]))))
     with open(output_prob_file, "w") as fout:
         state_action_state_prob = [[[] for _ in range(action_num)] for _ in range(state_num)]
         for i in range(state_num):
             for j in range(action_num):
                 state_action_state_prob[i][j] = get_prob(state_num)
-                print >> fout, " ".join(map(str, state_action_state_prob[i][j]))
-            print >> fout, "=" * 5
+                print(fout, " ".join(list(map(str, state_action_state_prob[i][j]))))
+            print(fout, "=" * 5)
     return state_action_score, state_action_state_prob
 
 def read_mdp(output_score_file, output_prob_file):
     state_action_score, state_action_state_prob = [], []
     with open(output_score_file, "r") as fin:
         for line in fin:
-            state_action_score.append(map(float, line.strip().split()))
+            state_action_score.append(list(map(float, line.strip().split())))
     with open(output_prob_file, "r") as fin:
         state_action_state_prob.append([])
         for line in fin:
             if "=" in line:
                 state_action_state_prob.append([])
             else:
-                state_action_state_prob[-1].append(map(float, line.strip().split()))
+                state_action_state_prob[-1].append(list(map(float, line.strip().split())))
     state_action_state_prob = state_action_state_prob[:-1]
     return state_action_score, state_action_state_prob
 
@@ -62,7 +62,7 @@ def get_policy(p):
         if random.random() < 0.5:
             return np.argsort(-np.array(state_action_score[state])).tolist()[:recommend_num]
         else:
-            return np.random.choice(np.argsort(-np.array(state_action_score[state])).tolist()[action_num/5:action_num/2], recommend_num, replace=False).tolist()
+            return np.random.choice(np.argsort(-np.array(state_action_score[state])).tolist()[action_num//5:action_num//2], recommend_num, replace=False).tolist()
     return random_policy if p == "random" else (max_policy if p == "max" else mix_policy)
 
 def get_model_policy(mode, sess, graph, model):
@@ -74,9 +74,9 @@ def get_model_policy(mode, sess, graph, model):
                     [model.rec_index, model.random_rec_index],
                     feed_dict={model.sessions_input: aid2index(np.reshape(click_history, [1,-1])),
                             model.sessions_length: np.array([len(click_history)]),
-                            model.lstm_state:[[[[0.]*FLAGS.units]]*2]*FLAGS.layers})
+                            model.lstm_state:[[[[0.]*FLAGS['units'].value]]*2]*FLAGS['layers'].value})
             current_action = np.reshape(output[1], [-1])[:recommend_num]
-            return map(int, current_action-len(_START_VOCAB))
+            return list(map(int, current_action-len(_START_VOCAB)))
     elif mode == "env":
         def model_policy(click_history, state):
             with graph.as_default():
@@ -90,7 +90,7 @@ def get_model_policy(mode, sess, graph, model):
                         model.sessions_length:[len(click_history)]})
             current_action = np.reshape(output[1], [-1])[:recommend_num]
 
-            return map(int, current_action)
+            return list(map(int, current_action))
     else:
         print("get_model_policy(mode, sess, graph, model): Mode Error!")
         exit()
@@ -105,9 +105,9 @@ def interact(file, policy, data_num):
                 print("%d sessions have been generated."%s)
             tmp_l = 0
             state, click_history = 0, [0] # initial state
-            print >> fout, str(s+1)+";0;"+str(click_history[-1])+";"+";0"
+            print(fout, str(s+1)+";0;"+str(click_history[-1])+";"+";0")
             while True:
-                rec_list = map(int, policy(click_history, state))
+                rec_list = list(map(int, policy(click_history, state)))
                 rec_score = [state_action_score[state][r] for r in rec_list]
                 record_score[state].append(rec_list)
                 candidate = int(np.random.choice(rec_list, 1, p=(np.array(rec_score)/np.sum(rec_score)).tolist())[0])
@@ -115,7 +115,7 @@ def interact(file, policy, data_num):
                 if random.random() < candidate_score and tmp_l < (1e10 if test_model else 40):
                     click_history.append(candidate)
                     state = int(np.random.choice(range(state_num), 1, p=state_action_state_prob[state][click_history[-1]])[0])
-                    print >> fout, str(s+1)+";"+str(state)+";"+str(click_history[-1])+";"+",".join(map(str, rec_list))+";0"
+                    print(fout, str(s+1)+";"+str(state)+";"+str(click_history[-1])+";"+",".join(list(map(str, rec_list)))+";0")
                     tmp_l += 1
                 else:
                     if tmp_l > 0 and tmp_l < (1e10 if test_model else 40):
@@ -133,9 +133,9 @@ def build_model(mode, train_dir):
         if mode == "env":
             model = EnvModel(
                     aid2index(action_num),
-                    FLAGS.embed_units,
-                    FLAGS.units,
-                    FLAGS.layers)
+                    FLAGS['embed_units'].value,
+                    FLAGS['units'].value,
+                    FLAGS['layers'].value)
             if tf.train.get_checkpoint_state(train_dir):
                 print("Reading environment model parameters from %s" % train_dir)
                 model.saver.restore(sess, tf.train.latest_checkpoint(train_dir))
@@ -145,10 +145,10 @@ def build_model(mode, train_dir):
         elif mode == "agn":
             model = AgentModel(
                     num_items=aid2index(action_num),
-                    num_embed_units=FLAGS.embed_units,
-                    num_units=FLAGS.units,
-                    num_layers=FLAGS.layers,
-                    action_num=FLAGS.action_num)
+                    num_embed_units=FLAGS['embed_units'].value,
+                    num_units=FLAGS['units'].value,
+                    num_layers=FLAGS['layers'].value,
+                    action_num=FLAGS['action_num'].value)
             if tf.train.get_checkpoint_state(train_dir):
                 print("Reading agent model parameters from %s" % train_dir)
                 model.saver.restore(sess, tf.train.latest_checkpoint(train_dir))
@@ -175,8 +175,9 @@ recommend_policy = "model" # "random" / "max" / "mix" / "model"
 if recommend_policy != "model":
     policy = get_policy(recommend_policy)
 elif recommend_policy == "model":
-    train_dir = "./train" # please specify the model directory of the model (including "agn" for rl-based agent model or "env" for sl-based environment model) if recommend_policy == "model"
-    mode = "agn" if "agn" in train_dir else "env"    
+    train_dir = "./train/env_train/" # please specify the model directory of the model (including "agn" for rl-based agent model or "env" for sl-based environment model) if recommend_policy == "model"
+    mode = "agn" if "agn" in train_dir else "env"
+    print('mode = ', mode)
     sess, graph, model = build_model(mode, train_dir)
     policy = get_model_policy(mode, sess, graph, model)
 else:
@@ -201,6 +202,7 @@ if test_model:
     print("Begin testing model...")
 else:
     print("Begin generating interaction data...")
+# checked till here
 
 interact(output_file, policy, data_num)
 

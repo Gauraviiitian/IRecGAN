@@ -81,7 +81,7 @@ class AgentModel(object):
             # [batch_size, length, action_num]
             _, self.index = tf.nn.top_k(mul_prob, k=action_num)
             # [batch_size, length, metric_num]
-            _, self.metric_index = tf.nn.top_k(mul_prob, k=(FLAGS.metric+1))
+            _, self.metric_index = tf.nn.top_k(mul_prob, k=(FLAGS['metric'].value+1))
 
             self.loss = tf.reduce_sum(tf.reshape(self.reward, [-1]) * local_loss) / total_size
 
@@ -148,7 +148,7 @@ class AgentModel(object):
             output_feed = [self.loss, self.metric_index, self.gradient_norm, self.update]
         return session.run(output_feed, input_feed)
 
-    def train(self, sess, dataset, generate_session=None, is_train=True, ftest_name=FLAGS.agn_output_file):
+    def train(self, sess, dataset, generate_session=None, is_train=True, ftest_name=FLAGS['agn_output_file'].value):
         st, ed, loss, acc, acc_1 = 0, 0, [], [], []
         if generate_session:
             dataset = dataset + generate_session
@@ -157,8 +157,8 @@ class AgentModel(object):
             fout = open(ftest_name, "w")
             fout.close()
         while ed < len(dataset):
-            st, ed = ed, ed + FLAGS.batch_size if ed + \
-                FLAGS.batch_size < len(dataset) else len(dataset)
+            st, ed = ed, ed + FLAGS['batch_size'].value if ed + \
+                FLAGS['batch_size'].value < len(dataset) else len(dataset)
             batch_data = gen_batched_data(dataset[st:ed])
             outputs = self.step_decoder(sess, batch_data, forward_only=False if is_train else True)
             loss.append(outputs[0])
