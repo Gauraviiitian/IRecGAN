@@ -14,9 +14,9 @@ This project is a tensorflow implementation of our work.
 
 ## Dependencies
 
-- Python 2.7
-- Numpy 1.14.5
-- Tensorflow 1.3.1
+- Python 3.5+
+- Numpy 1.18.0
+- Tensorflow 1.15.0
 
 
 
